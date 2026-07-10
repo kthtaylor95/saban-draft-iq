@@ -1,13 +1,21 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Atmosphere } from "./components/Atmosphere";
+import { CelebrationEffect } from "./components/CelebrationEffect";
+import { GameTilt } from "./components/GameTilt";
+import jailbreakRound from "./data/jailbreak-round.json";
 import players from "./data/players.json";
 import {
+  canAnswerJailbreak,
   canAdvanceFromResult,
+  canFinishJailbreak,
   createQuestionQueue,
   canSubmitAnswer,
   INTERACTION_STATES,
   isAnswerEntryState,
   isAcceptedAnswer,
+  isAcceptedJailbreakAnswer,
+  JAILBREAK_STAGES,
   POINTS_PER_CORRECT,
   QUESTION_TOTAL,
 } from "./game";
@@ -167,10 +175,9 @@ function getRank(score) {
 }
 
 function getStreakMessage(streak) {
-  if (streak >= 10) return "PERFECT PROCESS";
-  if (streak >= 8) return "SABAN APPROVED";
-  if (streak >= 5) return "ON FIRE";
-  if (streak >= 3) return "HEATING UP";
+  if (streak >= 8) return "TRUST THE PROCESS";
+  if (streak >= 5) return "DYNASTY MODE";
+  if (streak >= 3) return "ON FIRE";
   return "";
 }
 
@@ -204,6 +211,169 @@ function DraftCard({ compact = false } = {}) {
         src="/assets/mystery-draft-card.jpg"
       />
     </div>
+  );
+}
+
+function AnimatedFinalScore({ maxScore, score }) {
+  const [visibleScore, setVisibleScore] = useState(0);
+
+  useEffect(() => {
+    if (score === 0) return undefined;
+    const increment = Math.max(1, Math.ceil(score / 22));
+    const timer = window.setInterval(() => {
+      setVisibleScore((value) => {
+        const next = Math.min(value + increment, score);
+        if (next === score) window.clearInterval(timer);
+        return next;
+      });
+    }, 28);
+    return () => window.clearInterval(timer);
+  }, [score]);
+
+  return (
+    <h1 aria-live="polite" className="animatedFinalScore">
+      <span>{visibleScore}</span>
+      <small>/ {maxScore}</small>
+    </h1>
+  );
+}
+
+function StreakBanner({ message }) {
+  if (!message) return null;
+
+  return (
+    <aside className="streakBanner" role="status">
+      <span>Streak moment</span>
+      <strong>{message}</strong>
+    </aside>
+  );
+}
+
+function formatJailbreakCopy(template, score, maxScore) {
+  return template
+    .replace("{score}", String(score))
+    .replace("{maxScore}", String(maxScore));
+}
+
+function JailbreakRound({
+  celebration,
+  celebrationId,
+  isMuted,
+  maxScore,
+  onAnswer,
+  onContinue,
+  onFlipEnd,
+  onToggleSound,
+  onCelebrationComplete,
+  score,
+  selectedAnswer,
+  stage,
+}) {
+  const isResult = stage === JAILBREAK_STAGES.RESULT;
+  const isCorrect = selectedAnswer
+    ? isAcceptedJailbreakAnswer(jailbreakRound, selectedAnswer)
+    : false;
+  const flipClass =
+    stage === JAILBREAK_STAGES.REVEALING
+      ? "isRevealing"
+      : isResult
+        ? "isResult"
+        : "";
+
+  return (
+    <main className="pageShell resultsShell jailbreakPage">
+      <Atmosphere variant="jailbreak" />
+      <CelebrationEffect
+        effect={celebration}
+        effectId={celebrationId}
+        onComplete={onCelebrationComplete}
+      />
+      <button
+        aria-label={isMuted ? "Sound off" : "Sound on"}
+        className="muteButton"
+        data-muted={isMuted}
+        onClick={onToggleSound}
+        type="button"
+      >
+        {isMuted ? "Sound off" : "Sound on"}
+      </button>
+
+      <section className="jailbreakFlipScene" aria-label="Jailbreak bonus round">
+        <div
+          className={`jailbreakFlipCard ${flipClass}`}
+          onAnimationEnd={onFlipEnd}
+        >
+          <section
+            aria-hidden={stage !== JAILBREAK_STAGES.READY}
+            className="jailbreakFace jailbreakFront"
+            inert={stage !== JAILBREAK_STAGES.READY}
+          >
+            <div className="jailbreakLock" aria-hidden="true">
+              <span />
+            </div>
+            <p className="jailbreakBadge">{jailbreakRound.subtitle}</p>
+            <h1>{jailbreakRound.title}</h1>
+            <p className="jailbreakQuestion">{jailbreakRound.question}</p>
+            <div
+              aria-label="Jailbreak Round answer choices"
+              className="jailbreakChoices"
+              role="group"
+            >
+              {jailbreakRound.choices.map((choice) => (
+                <button
+                  className="jailbreakChoice"
+                  key={choice}
+                  onClick={() => onAnswer(choice)}
+                  type="button"
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
+            <p className="jailbreakScoreNote">
+              {formatJailbreakCopy(jailbreakRound.scoreHoldTemplate, score, maxScore)}
+            </p>
+          </section>
+
+          <section
+            aria-hidden={!isResult}
+            className={`jailbreakFace jailbreakBack ${isCorrect ? "isCorrect" : "isBelievable"}`}
+            inert={!isResult}
+          >
+            <p className="jailbreakBadge">{jailbreakRound.title}</p>
+            <p className="jailbreakResultLabel">
+              {isCorrect ? jailbreakRound.correctHeading : jailbreakRound.incorrectHeading}
+            </p>
+            <p className="jailbreakSelected">
+              <span>{jailbreakRound.selectedAnswerLabel}</span>
+              <strong>{selectedAnswer}</strong>
+            </p>
+            <h2>
+              {isCorrect
+                ? jailbreakRound.correctMessage
+                : jailbreakRound.incorrectMessage}
+            </h2>
+            <p className="jailbreakOfficialAnswer">
+              {isCorrect
+                ? jailbreakRound.correctDetail
+                : jailbreakRound.incorrectDetail}
+            </p>
+            <p className="jailbreakDisclaimer">{jailbreakRound.disclaimer}</p>
+            <p className="jailbreakScoreNote">
+              {formatJailbreakCopy(jailbreakRound.scoreRevealTemplate, score, maxScore)}
+            </p>
+            <button
+              className="primaryButton jailbreakContinue"
+              disabled={!canFinishJailbreak(stage)}
+              onClick={onContinue}
+              type="button"
+            >
+              {jailbreakRound.continueLabel}
+            </button>
+          </section>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -294,6 +464,12 @@ function TeamSearch({
           }
         }}
         placeholder="Type an NFL team..."
+        style={{
+          backgroundColor: "#20242b",
+          caretColor: "#e5c66f",
+          color: "#fffdf8",
+          WebkitTextFillColor: "#fffdf8",
+        }}
         value={query}
       />
       {!disabled && isOpen && (
@@ -345,8 +521,16 @@ function App() {
   const [shareLabel, setShareLabel] = useState("Copy results");
   const [interactionState, setInteractionState] = useState(INTERACTION_STATES.READY);
   const [resetPhase, setResetPhase] = useState("idle");
+  const [jailbreakStage, setJailbreakStage] = useState(JAILBREAK_STAGES.LOCKED);
+  const [jailbreakAnswer, setJailbreakAnswer] = useState("");
+  const [celebration, setCelebration] = useState(null);
+  const [celebrationId, setCelebrationId] = useState(0);
+  const [scorePulse, setScorePulse] = useState(0);
   const submissionLocked = useRef(false);
   const nextQuestionLocked = useRef(false);
+  const jailbreakUnlockLocked = useRef(false);
+  const jailbreakAnswerLocked = useRef(false);
+  const jailbreakContinueLocked = useRef(false);
 
   const currentPlayer = questionQueue[currentIndex];
   const questionNumber = Math.min(currentIndex + 1, QUESTION_TOTAL);
@@ -366,6 +550,13 @@ function App() {
           : interactionState === INTERACTION_STATES.RESETTING && resetPhase === "showFront"
             ? "isResettingFront"
             : "";
+
+  const clearCelebration = useCallback(() => setCelebration(null), []);
+
+  function triggerCelebration(type) {
+    setCelebrationId((value) => value + 1);
+    setCelebration(type);
+  }
 
   useEffect(() => {
     const storedVersion = window.localStorage.getItem("sdiDataVersion");
@@ -394,7 +585,7 @@ function App() {
         }
         return nextValue;
       });
-    }, 18);
+    }, 28);
     return () => window.clearInterval(timer);
   }, [displayScore, score]);
 
@@ -411,6 +602,12 @@ function App() {
       setBestStreak(longestStreak);
     }
   }, [bestStreak, longestStreak]);
+
+  useEffect(() => {
+    if (!streakMessage) return undefined;
+    const timer = window.setTimeout(() => setStreakMessage(""), 1750);
+    return () => window.clearTimeout(timer);
+  }, [streakMessage]);
 
   function playTone(type) {
     if (isMuted) return;
@@ -469,6 +666,12 @@ function App() {
     setLongestStreak(nextLongestStreak);
     setScore(nextScore);
     setStreakMessage(nextStreakMessage);
+    if (isCorrect) {
+      setScorePulse((value) => value + 1);
+      triggerCelebration(
+        nextStreak === QUESTION_TOTAL ? "perfect" : "answer",
+      );
+    }
     playTone(isCorrect ? "correct" : "incorrect");
   }
 
@@ -520,7 +723,10 @@ function App() {
     }
 
     if (resetPhase === "showFront") {
-      if (answeredCount >= QUESTION_TOTAL) setIsGameOver(true);
+      if (answeredCount >= QUESTION_TOTAL) {
+        setIsGameOver(true);
+        triggerCelebration(score === maxScore ? "perfect" : "final");
+      }
       setInteractionState(INTERACTION_STATES.READY);
       setResetPhase("idle");
       setIsProcessing(false);
@@ -545,31 +751,96 @@ function App() {
     setResetPhase("idle");
     setStreakMessage("");
     setIsGameOver(false);
+    setJailbreakStage(JAILBREAK_STAGES.LOCKED);
+    setJailbreakAnswer("");
+    setCelebration(null);
+    setScorePulse(0);
     setShareLabel("Copy results");
     setGameStatus("playing");
     submissionLocked.current = false;
     nextQuestionLocked.current = false;
+    jailbreakUnlockLocked.current = false;
+    jailbreakAnswerLocked.current = false;
+    jailbreakContinueLocked.current = false;
   }
 
   function startGame() {
     resetGame();
   }
 
-  async function copyResults() {
-    const text = `I scored ${score}/${maxScore} on Saban Draft IQ.\n\n🏆 ${rank}\n\nCan you beat me?`;
-    if (navigator.share) {
-      await navigator.share({ text, title: "Saban Draft IQ" });
-      setShareLabel("Shared");
-    } else {
-      await navigator.clipboard.writeText(text);
-      setShareLabel("Result copied");
+  function unlockJailbreakRound() {
+    if (
+      jailbreakUnlockLocked.current ||
+      jailbreakStage !== JAILBREAK_STAGES.LOCKED ||
+      !jailbreakRound.enabled
+    ) {
+      return;
     }
-    window.setTimeout(() => setShareLabel("Copy results"), 1600);
+    jailbreakUnlockLocked.current = true;
+    setJailbreakAnswer("");
+    setJailbreakStage(JAILBREAK_STAGES.READY);
+    triggerCelebration("jailbreak");
+  }
+
+  function answerJailbreakRound(answer) {
+    if (
+      jailbreakAnswerLocked.current ||
+      !canAnswerJailbreak({ stage: jailbreakStage, selectedAnswer: jailbreakAnswer })
+    ) {
+      return;
+    }
+    jailbreakAnswerLocked.current = true;
+    setJailbreakAnswer(answer);
+    setJailbreakStage(JAILBREAK_STAGES.REVEALING);
+    playTone(isAcceptedJailbreakAnswer(jailbreakRound, answer) ? "correct" : "incorrect");
+  }
+
+  function finishJailbreakFlip(event) {
+    if (
+      event.target !== event.currentTarget ||
+      event.animationName !== "jailbreakCardReveal" ||
+      jailbreakStage !== JAILBREAK_STAGES.REVEALING
+    ) {
+      return;
+    }
+    setJailbreakStage(JAILBREAK_STAGES.RESULT);
+  }
+
+  function finishJailbreakRound() {
+    if (
+      jailbreakContinueLocked.current ||
+      !canFinishJailbreak(jailbreakStage)
+    ) {
+      return;
+    }
+    jailbreakContinueLocked.current = true;
+    setJailbreakStage(JAILBREAK_STAGES.ENDING);
+    triggerCelebration("jailbreak");
+  }
+
+  async function copyResults(mode = "results") {
+    const text =
+      mode === "jailbreak"
+        ? jailbreakRound.shareTemplate.replace("{score}", `${score}/${maxScore}`)
+        : `I scored ${score}/${maxScore} on Saban Draft IQ.\n\n🏆 ${rank}\n\nCan you beat me?`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ text, title: "Saban Draft IQ" });
+        setShareLabel("Shared");
+      } else {
+        await navigator.clipboard.writeText(text);
+        setShareLabel("Result copied");
+      }
+      window.setTimeout(() => setShareLabel("Copy results"), 1600);
+    } catch (error) {
+      if (error?.name !== "AbortError") setShareLabel("Could not share");
+    }
   }
 
   if (gameStatus === "start") {
     return (
       <main className="pageShell startShell">
+        <Atmosphere variant="start" />
         <button
           aria-label={isMuted ? "Sound off" : "Sound on"}
           className="muteButton"
@@ -599,9 +870,85 @@ function App() {
     );
   }
 
+  if (
+    isGameOver &&
+    [
+      JAILBREAK_STAGES.READY,
+      JAILBREAK_STAGES.REVEALING,
+      JAILBREAK_STAGES.RESULT,
+    ].includes(jailbreakStage)
+  ) {
+    return (
+      <JailbreakRound
+        celebration={celebration}
+        celebrationId={celebrationId}
+        isMuted={isMuted}
+        maxScore={maxScore}
+        onAnswer={answerJailbreakRound}
+        onContinue={finishJailbreakRound}
+        onFlipEnd={finishJailbreakFlip}
+        onToggleSound={() => setIsMuted((value) => !value)}
+        onCelebrationComplete={clearCelebration}
+        score={score}
+        selectedAnswer={jailbreakAnswer}
+        stage={jailbreakStage}
+      />
+    );
+  }
+
+  if (isGameOver && jailbreakStage === JAILBREAK_STAGES.ENDING) {
+    return (
+      <main className="pageShell resultsShell finalEndingPage">
+        <Atmosphere variant="final" />
+        <CelebrationEffect
+          effect={celebration}
+          effectId={celebrationId}
+          onComplete={clearCelebration}
+        />
+        <button
+          aria-label={isMuted ? "Sound off" : "Sound on"}
+          className="muteButton"
+          data-muted={isMuted}
+          onClick={() => setIsMuted((value) => !value)}
+          type="button"
+        >
+          {isMuted ? "Sound off" : "Sound on"}
+        </button>
+
+        <section className="resultsCard finalEndingCard">
+          <p className="eyebrow">{jailbreakRound.finalEyebrow}</p>
+          <p className="finalScoreLabel">{jailbreakRound.finalScoreLabel}</p>
+          <AnimatedFinalScore maxScore={maxScore} score={score} />
+          <div className="rankBadge">{rank}</div>
+          <h2>{jailbreakRound.finalTitle}</h2>
+          <p className="finalEndingMessage">{jailbreakRound.finalSubtitle}</p>
+          <div className="finalEndingActions">
+            <button className="primaryButton" onClick={resetGame} type="button">
+              {jailbreakRound.playAgainLabel}
+            </button>
+            <button
+              className="secondaryButton"
+              onClick={() => copyResults("jailbreak")}
+              type="button"
+            >
+              {jailbreakRound.shareScoreLabel}
+            </button>
+          </div>
+          <p className="copyStatus" aria-live="polite">{shareLabel}</p>
+        </section>
+      </main>
+    );
+  }
+
   if (isGameOver) {
     return (
       <main className="pageShell resultsShell">
+        <Atmosphere variant={score === maxScore ? "perfect" : "final"} />
+        <CelebrationEffect
+          effect={celebration}
+          effectId={celebrationId}
+          onComplete={clearCelebration}
+        />
         <button
           aria-label={isMuted ? "Sound off" : "Sound on"}
           className="muteButton"
@@ -614,10 +961,10 @@ function App() {
 
         <section className="resultsCard">
           <p className="eyebrow">Final score</p>
-          <h1>{score} / {maxScore}</h1>
+          <AnimatedFinalScore maxScore={maxScore} score={score} />
           <div className="rankBadge">{rank}</div>
           {score === maxScore && (
-            <p className="perfectNote">Perfect Process<br />Nick Saban would approve.</p>
+            <p className="perfectNote">Perfect Season<br />Flawless from kickoff to the final whistle.</p>
           )}
           <div className="resultsStats">
             <div>
@@ -638,7 +985,22 @@ function App() {
             </div>
           </div>
 
-          <button className="primaryButton" onClick={copyResults} type="button">
+          {jailbreakRound.enabled && (
+            <button
+              className="primaryButton jailbreakUnlockButton"
+              disabled={jailbreakStage !== JAILBREAK_STAGES.LOCKED}
+              onClick={unlockJailbreakRound}
+              type="button"
+            >
+              <span className="miniLock" aria-hidden="true" />
+              {jailbreakRound.unlockLabel}
+            </button>
+          )}
+          <button
+            className="secondaryButton resultsShareButton"
+            onClick={() => copyResults("results")}
+            type="button"
+          >
             Share Results
           </button>
           <p className="copyStatus">{shareLabel}</p>
@@ -684,6 +1046,12 @@ function App() {
 
   return (
     <main className="pageShell">
+      <Atmosphere />
+      <CelebrationEffect
+        effect={celebration}
+        effectId={celebrationId}
+        onComplete={clearCelebration}
+      />
       <DevVerificationPanel />
       <button
         aria-label={isMuted ? "Sound off" : "Sound on"}
@@ -695,13 +1063,15 @@ function App() {
         {isMuted ? "Sound off" : "Sound on"}
       </button>
 
-      <section
-        className={`gameFlipScene ${feedback?.isCorrect === false ? "shake" : ""}`}
-      >
-        <div
-          className={`gameFlipCard ${flipStateClass}`}
-          onAnimationEnd={finishFlipStage}
+      <StreakBanner message={streakMessage} />
+      <GameTilt disabled={!answerEntryIsActive || interactionState !== INTERACTION_STATES.READY}>
+        <section
+          className={`gameFlipScene ${feedback?.isCorrect === false ? "shake" : ""}`}
         >
+          <div
+            className={`gameFlipCard ${flipStateClass}`}
+            onAnimationEnd={finishFlipStage}
+          >
           <section
             aria-hidden={!answerEntryIsActive}
             className="gamePanel gameFace gameFront"
@@ -753,12 +1123,19 @@ function App() {
                 aria-live="polite"
                 className={`result flipResult ${feedback.isCorrect ? "win" : "miss"}`}
                 role="status"
+                style={{
+                  "--team-primary": teamVisualFor(feedback.correctTeam).primary,
+                  "--team-secondary": teamVisualFor(feedback.correctTeam).secondary,
+                }}
               >
                 {streakMessage && <div className="resultStreak">{streakMessage}</div>}
                 <p className="resultLabel">
                   {feedback.isCorrect ? "✓ Correct" : "✕ Not quite"}
                 </p>
                 <h1>{feedback.player.name}</h1>
+                <span className="teamRevealMark" aria-hidden="true">
+                  {teamVisualFor(feedback.correctTeam).abbr}
+                </span>
                 <p className="correctTeamLabel">Correct team</p>
                 <h2>{feedback.correctTeam}</h2>
                 <div className="draftReveal">
@@ -782,20 +1159,21 @@ function App() {
               </div>
             )}
           </section>
-        </div>
-      </section>
+          </div>
+        </section>
+      </GameTilt>
 
       <section className="topBar" aria-label="Game scoreboard">
         <div>
           <span>Score</span>
-          <strong>{displayScore}</strong>
+          <strong className="scoreValue" key={scorePulse}>{displayScore}</strong>
         </div>
         <div>
           <span>Question</span>
           <strong>{questionNumber} / {QUESTION_TOTAL}</strong>
         </div>
         <div>
-          <span>🔥 Streak</span>
+          <span>Streak</span>
           <strong>{currentStreak}</strong>
         </div>
       </section>

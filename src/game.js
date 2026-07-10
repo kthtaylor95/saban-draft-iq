@@ -8,6 +8,14 @@ export const INTERACTION_STATES = Object.freeze({
   REVEALING: "revealing",
 });
 
+export const JAILBREAK_STAGES = Object.freeze({
+  LOCKED: "locked",
+  READY: "ready",
+  REVEALING: "revealing",
+  RESULT: "result",
+  ENDING: "ending",
+});
+
 export function createQuestionQueue(sourcePlayers, count = QUESTION_TOTAL) {
   const shuffledPlayers = [...sourcePlayers];
   for (let index = shuffledPlayers.length - 1; index > 0; index -= 1) {
@@ -44,4 +52,16 @@ export function isAnswerEntryState(interactionState) {
 
 export function canAdvanceFromResult(interactionState) {
   return interactionState === INTERACTION_STATES.RESULT;
+}
+
+export function isAcceptedJailbreakAnswer(config, answer) {
+  return answer.trim().toLowerCase() === config.acceptedAnswer.trim().toLowerCase();
+}
+
+export function canAnswerJailbreak({ stage, selectedAnswer }) {
+  return stage === JAILBREAK_STAGES.READY && !selectedAnswer;
+}
+
+export function canFinishJailbreak(stage) {
+  return stage === JAILBREAK_STAGES.RESULT;
 }
