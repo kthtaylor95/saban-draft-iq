@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.DS_Store
+.venv/
+.local/
+.npm-cache/
+.agents/
+__pycache__/
+*.py[cod]
+pet-runs/
+photo-drop/
+.env
+.env.*
+*.local
+*.log
+.vercel/
