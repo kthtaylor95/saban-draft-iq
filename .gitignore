@@ -14,3 +14,7 @@ photo-drop/
 *.local
 *.log
 .vercel/
+
+# Local Claude working-style rules (kept private, not published)
+CLAUDE.md
+.claude/

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import players from "./data/players.json";
 import {
@@ -11,7 +11,17 @@ import {
   POINTS_PER_CORRECT,
   QUESTION_TOTAL,
 } from "./game";
+import {
+  Atmosphere,
+  CelebrationLayer,
+  StreakBanner,
+  useCardTilt,
+  useCelebrations,
+  usePrefersReducedMotion,
+} from "./effects";
+import { JailbreakRound, JailbreakUnlock } from "./jailbreak";
 import "./styles.css";
+import "./cinematic.css";
 
 const teamGroups = [
   {
@@ -174,6 +184,64 @@ function getStreakMessage(streak) {
   return "";
 }
 
+// Broadcast streak banners — shown once per milestone per game (presentation only).
+const STREAK_MILESTONES = {
+  3: "ON FIRE",
+  5: "DYNASTY MODE",
+  8: "TRUST THE PROCESS",
+};
+
+// Build four multiple-choice options: the correct drafting team plus three
+// distractor teams that are not accepted answers for this player.
+function buildAnswerOptions(player, allTeams) {
+  const correct = player.draftedBy;
+  const pool = allTeams.filter((team) => !isAcceptedAnswer(player, team));
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const options = [correct, ...pool.slice(0, 3)];
+  for (let i = options.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  return options;
+}
+
+function AnswerChoices({ options, selectedTeam, feedback, disabled, onChoose }) {
+  return (
+    <div
+      className="answerChoices"
+      role="group"
+      aria-label="Choose the team that drafted this player"
+    >
+      {options.map((team) => {
+        const revealCorrect = Boolean(feedback) && team === feedback.correctTeam;
+        const revealWrong =
+          Boolean(feedback) && team === feedback.selectedTeam && !feedback.isCorrect;
+        return (
+          <button
+            className={`choiceBtn ${revealCorrect ? "isCorrect" : ""} ${
+              revealWrong ? "isWrong" : ""
+            } ${!feedback && selectedTeam === team ? "isSelected" : ""}`}
+            disabled={disabled || Boolean(feedback)}
+            key={team}
+            onClick={() => onChoose(team)}
+            type="button"
+          >
+            {(revealCorrect || revealWrong) && (
+              <span className="choiceMark" aria-hidden="true">
+                {revealCorrect ? "✓" : "✕"}
+              </span>
+            )}
+            <span>{team}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function readStoredNumber(key) {
   const value = Number(window.localStorage.getItem(key));
   return Number.isFinite(value) ? value : 0;
@@ -207,121 +275,6 @@ function DraftCard({ compact = false } = {}) {
   );
 }
 
-function TeamSearch({
-  currentPlayer,
-  disabled,
-  onSelect,
-  onSubmit,
-  resetKey,
-  selectedTeam,
-}) {
-  const [query, setQuery] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    setQuery("");
-    setIsOpen(false);
-    setActiveIndex(0);
-  }, [resetKey]);
-
-  useEffect(() => {
-    function closeOnOutsideClick(event) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, []);
-
-  const filteredTeams = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return [];
-    return teams
-      .filter((team) => team.toLowerCase().includes(normalizedQuery))
-      .slice(0, 5);
-  }, [query]);
-
-  function chooseTeam(team) {
-    onSelect(team);
-    setQuery(team);
-    setIsOpen(false);
-    setActiveIndex(0);
-  }
-
-  return (
-    <div className="teamSearch" ref={wrapperRef}>
-      <label htmlFor="team-search">Answer</label>
-      <input
-        aria-autocomplete="list"
-        aria-controls="team-suggestions"
-        aria-expanded={isOpen}
-        autoComplete="off"
-        disabled={disabled}
-        id="team-search"
-        onChange={(event) => {
-          const value = event.target.value;
-          setQuery(value);
-          setIsOpen(Boolean(value.trim()));
-          setActiveIndex(0);
-          onSelect(value);
-        }}
-        onFocus={() => setIsOpen(Boolean(query.trim()))}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            if (isOpen && filteredTeams[activeIndex]) {
-              chooseTeam(filteredTeams[activeIndex]);
-              return;
-            }
-            if (query.trim()) onSubmit();
-          }
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setIsOpen(Boolean(query.trim()));
-            setActiveIndex((index) =>
-              Math.min(index + 1, Math.max(filteredTeams.length - 1, 0)),
-            );
-          }
-          if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setActiveIndex((index) => Math.max(index - 1, 0));
-          }
-          if (event.key === "Escape") {
-            setIsOpen(false);
-          }
-        }}
-        placeholder="Type an NFL team..."
-        value={query}
-      />
-      {!disabled && isOpen && (
-        <div className="teamList" id="team-suggestions" role="listbox">
-          {filteredTeams.map((team, index) => (
-            <button
-              aria-selected={index === activeIndex || team === selectedTeam}
-              className={
-                index === activeIndex || team === selectedTeam
-                  ? "teamOption selected"
-                  : "teamOption"
-              }
-              key={team}
-              onClick={() => chooseTeam(team)}
-              type="button"
-            >
-              {team}
-            </button>
-          ))}
-          {filteredTeams.length === 0 && (
-            <p className="emptyTeams">No team found. Try another spelling.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function App() {
   const [questionQueue, setQuestionQueue] = useState(() =>
     createQuestionQueue(players),
@@ -348,6 +301,32 @@ function App() {
   const submissionLocked = useRef(false);
   const nextQuestionLocked = useRef(false);
 
+  const [streakBanner, setStreakBanner] = useState(null);
+  const [pointsFloatId, setPointsFloatId] = useState(0);
+  const [jailbreak, setJailbreak] = useState("locked"); // locked | unlocking | playing | done
+  const shownMilestones = useRef(new Set());
+  const streakBannerTimer = useRef(null);
+
+  const reducedMotion = usePrefersReducedMotion();
+  const {
+    effects,
+    fire: fireCelebration,
+    clear: clearCelebrations,
+  } = useCelebrations(!reducedMotion);
+
+  const showStreakBanner = useCallback((title) => {
+    if (streakBannerTimer.current) window.clearTimeout(streakBannerTimer.current);
+    setStreakBanner(title);
+    streakBannerTimer.current = window.setTimeout(() => setStreakBanner(null), 1900);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (streakBannerTimer.current) window.clearTimeout(streakBannerTimer.current);
+    },
+    [],
+  );
+
   const currentPlayer = questionQueue[currentIndex];
   const questionNumber = Math.min(currentIndex + 1, QUESTION_TOTAL);
   const maxScore = QUESTION_TOTAL * POINTS_PER_CORRECT;
@@ -366,6 +345,24 @@ function App() {
           : interactionState === INTERACTION_STATES.RESETTING && resetPhase === "showFront"
             ? "isResettingFront"
             : "";
+
+  const answerOptions = useMemo(
+    () => (currentPlayer ? buildAnswerOptions(currentPlayer, teams) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentPlayer?.id],
+  );
+  const tiltRef = useCardTilt(
+    interactionState === INTERACTION_STATES.REVEALING ||
+      interactionState === INTERACTION_STATES.RESETTING,
+  );
+
+  // Championship celebration + final-score count-up when the normal game finishes.
+  useEffect(() => {
+    if (!isGameOver) return;
+    setDisplayScore(0); // replay the score count-up on the final screen
+    fireCelebration(score === maxScore ? "perfect" : "fireworks");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGameOver]);
 
   useEffect(() => {
     const storedVersion = window.localStorage.getItem("sdiDataVersion");
@@ -430,19 +427,21 @@ function App() {
     oscillator.stop(audioContext.currentTime + 0.25);
   }
 
-  function submitGuess() {
+  function submitGuess(chosenTeam) {
+    const team = chosenTeam ?? selectedTeam;
     if (
       submissionLocked.current ||
       !answerEntryIsActive ||
-      !canSubmitAnswer({ selectedTeam, feedback, isGameOver, isProcessing })
+      !canSubmitAnswer({ selectedTeam: team, feedback, isGameOver, isProcessing })
     ) {
       return;
     }
     submissionLocked.current = true;
     setIsProcessing(true);
+    setSelectedTeam(team);
     setInteractionState(INTERACTION_STATES.REVEALING);
 
-    const isCorrect = isAcceptedAnswer(currentPlayer, selectedTeam);
+    const isCorrect = isAcceptedAnswer(currentPlayer, team);
     const nextAnsweredCount = answeredCount + 1;
     const nextStreak = isCorrect ? currentStreak + 1 : 0;
     const nextLongestStreak = Math.max(longestStreak, nextStreak);
@@ -451,7 +450,7 @@ function App() {
 
     setFeedback({
       isCorrect,
-      selectedTeam,
+      selectedTeam: team,
       correctTeam: currentPlayer.draftedBy,
       player: currentPlayer,
     });
@@ -460,7 +459,7 @@ function App() {
         ...playersMissed,
         {
           player: currentPlayer,
-          guessedAnswer: selectedTeam,
+          guessedAnswer: team,
         },
       ]);
     }
@@ -470,14 +469,21 @@ function App() {
     setScore(nextScore);
     setStreakMessage(nextStreakMessage);
     playTone(isCorrect ? "correct" : "incorrect");
+
+    if (isCorrect) {
+      fireCelebration("spark");
+      setPointsFloatId((value) => value + 1);
+      const milestone = STREAK_MILESTONES[nextStreak];
+      if (milestone && !shownMilestones.current.has(nextStreak)) {
+        shownMilestones.current.add(nextStreak);
+        showStreakBanner(milestone);
+      }
+    }
   }
 
-  function selectTeam(team) {
-    if (!answerEntryIsActive) return;
-    setSelectedTeam(team);
-    setInteractionState(
-      team.trim() ? INTERACTION_STATES.ANSWERING : INTERACTION_STATES.READY,
-    );
+  function handleChoice(team) {
+    if (!answerEntryIsActive || feedback) return;
+    submitGuess(team);
   }
 
   function nextQuestionNow() {
@@ -547,6 +553,11 @@ function App() {
     setIsGameOver(false);
     setShareLabel("Copy results");
     setGameStatus("playing");
+    setStreakBanner(null);
+    setJailbreak("locked");
+    shownMilestones.current = new Set();
+    if (streakBannerTimer.current) window.clearTimeout(streakBannerTimer.current);
+    clearCelebrations();
     submissionLocked.current = false;
     nextQuestionLocked.current = false;
   }
@@ -570,6 +581,7 @@ function App() {
   if (gameStatus === "start") {
     return (
       <main className="pageShell startShell">
+        <Atmosphere />
         <button
           aria-label={isMuted ? "Sound off" : "Sound on"}
           className="muteButton"
@@ -599,9 +611,31 @@ function App() {
     );
   }
 
+  if (isGameOver && jailbreak === "playing") {
+    return (
+      <main className="pageShell">
+        <Atmosphere />
+        <CelebrationLayer effects={effects} />
+        <JailbreakRound
+          onFinish={() => setJailbreak("done")}
+          fireCelebration={fireCelebration}
+        />
+      </main>
+    );
+  }
+
   if (isGameOver) {
+    const isPerfect = score === maxScore;
     return (
       <main className="pageShell resultsShell">
+        <Atmosphere />
+        <CelebrationLayer effects={effects} />
+        {jailbreak === "unlocking" && (
+          <JailbreakUnlock
+            reducedMotion={reducedMotion}
+            onDone={() => setJailbreak("playing")}
+          />
+        )}
         <button
           aria-label={isMuted ? "Sound off" : "Sound on"}
           className="muteButton"
@@ -612,12 +646,26 @@ function App() {
           {isMuted ? "Sound off" : "Sound on"}
         </button>
 
-        <section className="resultsCard">
-          <p className="eyebrow">Final score</p>
-          <h1>{score} / {maxScore}</h1>
-          <div className="rankBadge">{rank}</div>
-          {score === maxScore && (
-            <p className="perfectNote">Perfect Process<br />Nick Saban would approve.</p>
+        <section className={`resultsCard ${isPerfect ? "isPerfect" : ""}`}>
+          {isPerfect ? (
+            <>
+              <span className="perfectCrown" aria-hidden="true">🏆</span>
+              <p className="eyebrow">Final score</p>
+              <h1>
+                <span className="finalScoreValue">{displayScore}</span> / {maxScore}
+              </h1>
+              <p className="perfectTitle">Perfect Season</p>
+              <p className="perfectSub">Flawless from kickoff to the final whistle.</p>
+              <p className="perfectMini">Nick Saban would approve.</p>
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">Final score</p>
+              <h1>
+                <span className="finalScoreValue">{displayScore}</span> / {maxScore}
+              </h1>
+              <div className="rankBadge">{rank}</div>
+            </>
           )}
           <div className="resultsStats">
             <div>
@@ -645,6 +693,19 @@ function App() {
           <button className="secondaryButton" onClick={resetGame} type="button">
             Play Again
           </button>
+
+          {jailbreak === "locked" ? (
+            <button
+              className="secondaryButton jbEnter"
+              onClick={() => setJailbreak("unlocking")}
+              type="button"
+            >
+              🔒 Enter the Jailbreak Round
+            </button>
+          ) : (
+            <p className="bestLine">🔓 Jailbreak Round complete</p>
+          )}
+
           <p className="bestLine">Best Score: {shownBestScore} · Best Streak: {bestStreak}</p>
 
           {missedPlayers.length > 0 && (
@@ -695,6 +756,11 @@ function App() {
         {isMuted ? "Sound off" : "Sound on"}
       </button>
 
+      <Atmosphere />
+      <CelebrationLayer effects={effects} />
+      {streakBanner && <StreakBanner kicker="Streak" title={streakBanner} />}
+
+      <div className="tiltCard" ref={tiltRef}>
       <section
         className={`gameFlipScene ${feedback?.isCorrect === false ? "shake" : ""}`}
       >
@@ -721,23 +787,13 @@ function App() {
             </div>
 
             <div className="answerPanel">
-              <TeamSearch
-                currentPlayer={currentPlayer}
-                disabled={!answerEntryIsActive}
-                onSelect={selectTeam}
-                onSubmit={submitGuess}
-                resetKey={currentIndex}
+              <AnswerChoices
+                options={answerOptions}
                 selectedTeam={selectedTeam}
+                feedback={feedback}
+                disabled={!answerEntryIsActive}
+                onChoose={handleChoice}
               />
-
-              <button
-                className="primaryButton"
-                disabled={!selectedTeam || !answerEntryIsActive || isProcessing}
-                onClick={submitGuess}
-                type="button"
-              >
-                MAKE YOUR PICK
-              </button>
             </div>
           </section>
 
@@ -784,11 +840,19 @@ function App() {
           </section>
         </div>
       </section>
+      </div>
 
       <section className="topBar" aria-label="Game scoreboard">
-        <div>
+        <div style={{ position: "relative" }}>
           <span>Score</span>
-          <strong>{displayScore}</strong>
+          <strong>
+            <span className="scoreValue" key={score}>{displayScore}</span>
+          </strong>
+          {pointsFloatId > 0 && (
+            <span className="pointsFloat" key={pointsFloatId} aria-hidden="true">
+              +{POINTS_PER_CORRECT}
+            </span>
+          )}
         </div>
         <div>
           <span>Question</span>
