@@ -68,6 +68,22 @@ const localPreview = await readFile(
   "utf8",
 );
 
+for (const componentPath of [
+  "src/components/Atmosphere.jsx",
+  "src/components/CelebrationEffect.jsx",
+  "src/components/GameTilt.jsx",
+]) {
+  const componentSource = await readFile(
+    new URL(`../${componentPath}`, import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    componentSource,
+    /import React(?:,| from) /,
+    `${componentPath} must import React so its JSX cannot crash as a blank production page.`,
+  );
+}
+
 assert.equal(players.length, 30, "Dataset must contain exactly 30 players.");
 assert.deepEqual(names, expectedNames, "Dataset names/order must match Version 1.");
 assert.equal(new Set(names).size, 30, "Every player name must be unique.");

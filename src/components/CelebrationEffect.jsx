@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 
 const effectConfig = {
   answer: { count: 14, duration: 2200 },

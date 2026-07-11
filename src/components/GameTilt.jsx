@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 export function GameTilt({ children, disabled = false }) {
   const cardRef = useRef(null);

@@ -1,3 +1,5 @@
+import React from "react";
+
 export function Atmosphere({ variant = "game" }) {
   return (
     <div className={`atmosphere atmosphere-${variant}`} aria-hidden="true">
